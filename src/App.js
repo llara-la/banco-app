@@ -14,6 +14,10 @@ const BankingApp = () => {
   });
   const [notification, setNotification] = useState(null);
   const [showInternationalFields, setShowInternationalFields] = useState(false);
+  const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
+
+  // Configuración de la API
+  const API_BASE_URL = 'http://presaleslatamtest.apigw-az-us.webmethods.io/gateway/transferencias/1.0';
 
   // Datos simulados de usuarios y cuentas
   const users = {
@@ -44,7 +48,7 @@ const BankingApp = () => {
 
   const showNotification = (message, type = 'success') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4000);
+    setTimeout(() => setNotification(null), type === 'info' ? 3000 : 4000);
   };
 
   const handleLogin = (userId, password) => {
@@ -58,16 +62,23 @@ const BankingApp = () => {
     }
   };
 
-  const handleTransfer = () => {
+  const handleTransfer = async () => {
     const { destinationAccount, swiftCode, amount, concept, pin } = transferData;
     
-    if (!destinationAccount || !swiftCode || !amount || !concept || !pin) {
-      showNotification('Por favor completa todos los campos', 'error');
+    // Validar campos básicos
+    if (!destinationAccount || !amount || !concept || !pin) {
+      showNotification('Por favor completa todos los campos obligatorios', 'error');
       return;
     }
 
-    // Validar formato de código SWIFT (8 o 11 caracteres)
-    if (swiftCode.length !== 8 && swiftCode.length !== 11) {
+    // Validar campos internacionales si están habilitados
+    if (showInternationalFields && !swiftCode) {
+      showNotification('Por favor completa el código SWIFT para transferencias internacionales', 'error');
+      return;
+    }
+
+    // Validar formato de código SWIFT solo si está habilitado y tiene valor
+    if (showInternationalFields && swiftCode && (swiftCode.length !== 8 && swiftCode.length !== 11)) {
       showNotification('El código SWIFT debe tener 8 u 11 caracteres', 'error');
       return;
     }
@@ -90,32 +101,93 @@ const BankingApp = () => {
       return;
     }
 
-    // Realizar la transferencia
-    const updatedUser = { ...currentUser };
-    updatedUser.accounts[currentUser.selectedAccount].balance -= transferAmount;
-    
-    // Si la cuenta destino existe en nuestra base de datos, agregar el dinero
-    const destinationUser = Object.values(userDatabase).find(user => 
-      user.accounts.some(account => account.number === destinationAccount)
-    );
-    
-    if (destinationUser) {
-      const destinationAccountIndex = destinationUser.accounts.findIndex(
-        account => account.number === destinationAccount
-      );
-      destinationUser.accounts[destinationAccountIndex].balance += transferAmount;
+    // Preparar datos para la API
+    const transferPayload = {
+      cuentaBeneficiario: {
+        numeroCuenta: destinationAccount,
+        titular: "Beneficiario", // En una app real, esto se obtendría del formulario
+        banco: "Banco Destino" // En una app real, esto se obtendría del formulario
+      },
+      montoTransferencia: {
+        cantidad: transferAmount,
+        tipoMoneda: "USD" // En una app real, esto sería seleccionable
+      },
+      tipoTransferencia: showInternationalFields ? "INTERNACIONAL" : "NACIONAL",
+      codigoSwift: showInternationalFields ? swiftCode : ""
+    };
+
+    setIsProcessingTransfer(true);
+    showNotification('Procesando transferencia...', 'info');
+
+    try {
+      // Llamada a la API
+      const response = await fetch(`${API_BASE_URL}/transferencias`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(transferPayload)
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        // Transferencia exitosa
+        const { transferenciaId, fechaProceso, comision, estado } = result.data;
+        
+        // Actualizar saldo local (simulado)
+        const updatedUser = { ...currentUser };
+        updatedUser.accounts[currentUser.selectedAccount].balance -= (transferAmount + comision);
+        setCurrentUser(updatedUser);
+        setUserDatabase(prev => ({
+          ...prev,
+          [currentUser.id]: updatedUser
+        }));
+
+        const transferType = showInternationalFields ? 'internacional' : 'nacional';
+        const successMessage = `Transferencia ${transferType} exitosa!\nID: ${transferenciaId}\nComisión: $${comision.toFixed(2)}`;
+        
+        setTransferData({ destinationAccount: '', swiftCode: '', amount: '', concept: '', pin: '' });
+        setShowInternationalFields(false);
+        showNotification(successMessage, 'success');
+        setCurrentView('dashboard');
+        
+      } else {
+        // Error en la API
+        if (result.errores && result.errores.length > 0) {
+          const errorMessages = result.errores.map(error => `${error.campo}: ${error.descripcion}`).join('\n');
+          showNotification(`Errores en la transferencia:\n${errorMessages}`, 'error');
+        } else {
+          showNotification(result.mensaje || 'Error al procesar la transferencia', 'error');
+        }
+      }
+    } catch (error) {
+      // Error de red o conexión
+      console.error('Error al realizar la transferencia:', error);
+      showNotification('Error de conexión. Por favor, intenta nuevamente.', 'error');
+      
+      // En caso de error, hacer transferencia local como fallback (modo demo)
+      showNotification('Modo demo: Procesando transferencia localmente...', 'info');
+      setTimeout(() => {
+        const updatedUser = { ...currentUser };
+        updatedUser.accounts[currentUser.selectedAccount].balance -= transferAmount;
+        setCurrentUser(updatedUser);
+        setUserDatabase(prev => ({
+          ...prev,
+          [currentUser.id]: updatedUser
+        }));
+
+        const transferType = showInternationalFields ? 'internacional' : 'nacional';
+        const successMessage = `Transferencia ${transferType} completada (modo demo)\nMonto: $${transferAmount.toFixed(2)}`;
+        
+        setTransferData({ destinationAccount: '', swiftCode: '', amount: '', concept: '', pin: '' });
+        setShowInternationalFields(false);
+        showNotification(successMessage, 'success');
+        setCurrentView('dashboard');
+      }, 2000);
+    } finally {
+      setIsProcessingTransfer(false);
     }
-
-    setCurrentUser(updatedUser);
-    setUserDatabase(prev => ({
-      ...prev,
-      [currentUser.id]: updatedUser,
-      ...(destinationUser && { [destinationUser.id]: destinationUser })
-    }));
-
-    setTransferData({ destinationAccount: '', swiftCode: '', amount: '', concept: '', pin: '' });
-    showNotification(`Transferencia exitosa por ${transferAmount.toFixed(2)} a ${swiftCode}`);
-    setCurrentView('dashboard');
   };
 
   const LoginView = () => {
@@ -185,13 +257,13 @@ const BankingApp = () => {
             </div>
           </div>
 
-          <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-            <h3 className="text-sm font-semibold text-blue-800 mb-2">Códigos SWIFT de Ejemplo:</h3>
-            <div className="text-xs text-blue-700 space-y-1">
-              <div><strong>BBVACOL1</strong> - Banco BBVA Colombia</div>
-              <div><strong>BANCOUS33</strong> - Bank of America (USA)</div>
-              <div><strong>CHASUS33</strong> - JPMorgan Chase (USA)</div>
-              <div><strong>CITIUS33</strong> - Citibank (USA)</div>
+          <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+            <h3 className="text-sm font-semibold text-green-800 mb-2">🔗 Integración con API</h3>
+            <div className="text-xs text-green-700 space-y-1">
+              <div><strong>Endpoint:</strong> POST /transferencias</div>
+              <div><strong>Autenticación:</strong> Sin autenticación requerida</div>
+              <div><strong>Validaciones:</strong> SWIFT, montos, cuentas</div>
+              <div><strong>Fallback:</strong> Modo demo si no hay conexión</div>
             </div>
           </div>
         </div>
@@ -284,178 +356,4 @@ const BankingApp = () => {
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-xl font-bold">Transferir Dinero</h1>
-          </div>
-        </div>
-
-        <div className="p-6">
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Número de Cuenta Destino
-                </label>
-                <input
-                  type="text"
-                  value={transferData.destinationAccount}
-                  onChange={(e) => setTransferData({ ...transferData, destinationAccount: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="0009876543210"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Ingresa el número de cuenta del beneficiario
-                </p>
-              </div>
-
-              {/* Checkbox para habilitar transferencias internacionales */}
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    id="internationalTransfer"
-                    checked={showInternationalFields}
-                    onChange={(e) => {
-                      setShowInternationalFields(e.target.checked);
-                      if (!e.target.checked) {
-                        setTransferData({ ...transferData, swiftCode: '' });
-                      }
-                    }}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="internationalTransfer" className="text-sm font-medium text-blue-800">
-                    Transferencia Internacional
-                  </label>
-                </div>
-                <p className="text-xs text-blue-600 mt-2 ml-7">
-                  Marca esta opción si deseas realizar una transferencia a un banco en el extranjero
-                </p>
-              </div>
-
-              {/* Campos internacionales - solo se muestran si el checkbox está marcado */}
-              {showInternationalFields && (
-                <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 space-y-4">
-                  <h3 className="text-sm font-semibold text-yellow-800 mb-3">
-                    📍 Información Internacional
-                  </h3>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Código SWIFT <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={transferData.swiftCode}
-                      onChange={(e) => setTransferData({ ...transferData, swiftCode: e.target.value.toUpperCase() })}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="ABCDUS33XXX"
-                      maxLength="11"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Código SWIFT del banco destino (8 u 11 caracteres)
-                    </p>
-                  </div>
-
-                  <div className="bg-white p-3 rounded border">
-                    <h4 className="text-xs font-semibold text-gray-800 mb-2">Códigos SWIFT de Ejemplo:</h4>
-                    <div className="text-xs text-gray-600 space-y-1">
-                      <div><strong>BBVACOL1</strong> - Banco BBVA Colombia</div>
-                      <div><strong>BANCOUS33</strong> - Bank of America (USA)</div>
-                      <div><strong>CHASUS33</strong> - JPMorgan Chase (USA)</div>
-                      <div><strong>CITIUS33</strong> - Citibank (USA)</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Monto a Transferir
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                  <input
-                    type="number"
-                    value={transferData.amount}
-                    onChange={(e) => setTransferData({ ...transferData, amount: e.target.value })}
-                    className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="0.00"
-                    step="0.01"
-                    min="0"
-                  />
-                </div>
-                <p className="text-sm text-gray-500 mt-1">
-                  Saldo disponible: ${currentUser?.accounts[currentUser.selectedAccount]?.balance.toLocaleString('es-CO', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Concepto
-                </label>
-                <input
-                  type="text"
-                  value={transferData.concept}
-                  onChange={(e) => setTransferData({ ...transferData, concept: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Pago de servicios, regalo, etc."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  PIN de Seguridad
-                </label>
-                <input
-                  type="password"
-                  value={transferData.pin}
-                  onChange={(e) => setTransferData({ ...transferData, pin: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="••••"
-                  maxLength="4"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  PIN de prueba para {currentUser?.name}: {currentUser?.pin}
-                </p>
-              </div>
-
-              <button
-                onClick={handleTransfer}
-                className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center space-x-2"
-              >
-                <Send className="w-5 h-5" />
-                <span>
-                  {showInternationalFields ? 'Confirmar Transferencia Internacional' : 'Confirmar Transferencia Nacional'}
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="relative">
-      {notification && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center space-x-2 ${
-          notification.type === 'success' 
-            ? 'bg-green-500 text-white' 
-            : 'bg-red-500 text-white'
-        }`}>
-          {notification.type === 'success' ? (
-            <CheckCircle className="w-5 h-5" />
-          ) : (
-            <AlertCircle className="w-5 h-5" />
-          )}
-          <span>{notification.message}</span>
-        </div>
-      )}
-
-      {currentView === 'login' && <LoginView />}
-      {currentView === 'dashboard' && <DashboardView />}
-      {currentView === 'transfer' && <TransferView />}
-    </div>
-  );
-};
-
-export default BankingApp;
+            <h1 className="text-xl f
