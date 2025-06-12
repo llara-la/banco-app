@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'; 
+import React, { useState, useEffect } from 'react';
 import { CreditCard, Send, ArrowLeft, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
 
 const BankingApp = () => {
@@ -105,12 +105,12 @@ const BankingApp = () => {
     const transferPayload = {
       cuentaBeneficiario: {
         numeroCuenta: destinationAccount,
-        titular: "Beneficiario", // En una app real, esto se obtendría del formulario
-        banco: "Banco Destino" // En una app real, esto se obtendría del formulario
+        titular: "Beneficiario",
+        banco: "Banco Destino"
       },
       montoTransferencia: {
         cantidad: transferAmount,
-        tipoMoneda: "USD" // En una app real, esto sería seleccionable
+        tipoMoneda: "USD"
       },
       tipoTransferencia: showInternationalFields ? "INTERNACIONAL" : "NACIONAL",
       codigoSwift: showInternationalFields ? swiftCode : ""
@@ -356,4 +356,203 @@ const BankingApp = () => {
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-xl f
+            <h1 className="text-xl font-bold">Transferir Dinero</h1>
+          </div>
+        </div>
+
+        <div className="p-6">
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Número de Cuenta Destino
+                </label>
+                <input
+                  type="text"
+                  value={transferData.destinationAccount}
+                  onChange={(e) => setTransferData({ ...transferData, destinationAccount: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="1234567890123456"
+                  maxLength="20"
+                  disabled={isProcessingTransfer}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Número de cuenta del beneficiario (10-20 dígitos)
+                </p>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    id="internationalTransfer"
+                    checked={showInternationalFields}
+                    onChange={(e) => {
+                      setShowInternationalFields(e.target.checked);
+                      if (!e.target.checked) {
+                        setTransferData({ ...transferData, swiftCode: '' });
+                      }
+                    }}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="internationalTransfer" className="text-sm font-medium text-blue-800">
+                    Transferencia Internacional
+                  </label>
+                </div>
+                <p className="text-xs text-blue-600 mt-2 ml-7">
+                  Marca esta opción si deseas realizar una transferencia a un banco en el extranjero
+                </p>
+              </div>
+
+              {showInternationalFields && (
+                <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 space-y-4">
+                  <h3 className="text-sm font-semibold text-yellow-800 mb-3">
+                    📍 Información Internacional
+                  </h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Código SWIFT <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={transferData.swiftCode}
+                      onChange={(e) => setTransferData({ ...transferData, swiftCode: e.target.value.toUpperCase() })}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="BOFAUS3N"
+                      maxLength="11"
+                      pattern="^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+                      disabled={isProcessingTransfer}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Código SWIFT del banco destino (8 u 11 caracteres)
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-3 rounded border">
+                    <h4 className="text-xs font-semibold text-gray-800 mb-2">Códigos SWIFT de Ejemplo:</h4>
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div><strong>BBVACOL1</strong> - Banco BBVA Colombia</div>
+                      <div><strong>BANCOUS33</strong> - Bank of America (USA)</div>
+                      <div><strong>CHASUS33</strong> - JPMorgan Chase (USA)</div>
+                      <div><strong>CITIUS33</strong> - Citibank (USA)</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Monto a Transferir
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                  <input
+                    type="number"
+                    value={transferData.amount}
+                    onChange={(e) => setTransferData({ ...transferData, amount: e.target.value })}
+                    className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0.01"
+                    max="999999999.99"
+                    disabled={isProcessingTransfer}
+                  />
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Saldo disponible: ${currentUser?.accounts[currentUser.selectedAccount]?.balance.toLocaleString('es-CO', { minimumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-yellow-600 mt-1">
+                  💡 Nota: Se aplicará una comisión según el tipo de transferencia
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Concepto
+                </label>
+                <input
+                  type="text"
+                  value={transferData.concept}
+                  onChange={(e) => setTransferData({ ...transferData, concept: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Pago de servicios, regalo, etc."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  PIN de Seguridad
+                </label>
+                <input
+                  type="password"
+                  value={transferData.pin}
+                  onChange={(e) => setTransferData({ ...transferData, pin: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="••••"
+                  maxLength="4"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  PIN de prueba para {currentUser?.name}: {currentUser?.pin}
+                </p>
+              </div>
+
+              <button
+                onClick={handleTransfer}
+                disabled={isProcessingTransfer}
+                className={`w-full py-3 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2 ${
+                  isProcessingTransfer 
+                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed' 
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                {isProcessingTransfer ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    <span>Procesando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    <span>
+                      {showInternationalFields ? 'Confirmar Transferencia Internacional' : 'Confirmar Transferencia Nacional'}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="relative">
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center space-x-2 max-w-md ${
+          notification.type === 'success' 
+            ? 'bg-green-500 text-white' 
+            : notification.type === 'info'
+            ? 'bg-blue-500 text-white'
+            : 'bg-red-500 text-white'
+        }`}>
+          {notification.type === 'success' ? (
+            <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          ) : notification.type === 'info' ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white flex-shrink-0"></div>
+          ) : (
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          )}
+          <span className="text-sm whitespace-pre-line">{notification.message}</span>
+        </div>
+      )}
+
+      {currentView === 'login' && <LoginView />}
+      {currentView === 'dashboard' && <DashboardView />}
+      {currentView === 'transfer' && <TransferView />}
+    </div>
+  );
+};
+
+export default BankingApp;
